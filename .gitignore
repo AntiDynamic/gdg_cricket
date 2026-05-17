@@ -24,3 +24,6 @@ Thumbs.db
 
 # Temp directories
 temp_clone/
+
+# Local Netlify folder
+.netlify
