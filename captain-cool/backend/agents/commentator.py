@@ -3,7 +3,7 @@ from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBVGGhIoAWLJCZkoL6mv3mXKfLKu-UgDA4")
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_ID = "gemini-2.5-flash-lite"
+MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def provide_commentary(situation: str, final_call: dict, stats_analysis: str) -> str:
     """
@@ -20,8 +20,9 @@ def provide_commentary(situation: str, final_call: dict, stats_analysis: str) ->
     - Sound emotionally intelligent, feeling the pressure and momentum.
     - Use phrases like "gambling slightly here", "suffocate this chase", "building pressure".
     - Limit to 2 sentences of high-hype broadcast commentary.
+    - ANTI-HALLUCINATION RULES: Do not invent any new players or squads. Only refer to players and teams explicitly present in the Situation and Final Strategy.
     
-    Example: "Mumbai are gambling slightly here bringing Bumrah back early, but they know one quiet over could suffocate this chase completely. The captain has thrown down the gauntlet!"
+    Example: "They are gambling slightly here bringing the bowler back early, but they know one quiet over could suffocate this chase completely. The captain has thrown down the gauntlet!"
     """
     
     response = client.models.generate_content(

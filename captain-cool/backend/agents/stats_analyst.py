@@ -5,7 +5,7 @@ from tools.cricket_tool import get_fixture_details, get_live_scores
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBVGGhIoAWLJCZkoL6mv3mXKfLKu-UgDA4")
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_ID = "gemini-2.5-flash-lite"
+MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def analyze_match_state(situation: str, match_id: int | None = None) -> str:
     """
@@ -24,10 +24,11 @@ def analyze_match_state(situation: str, match_id: int | None = None) -> str:
     - NEVER ask the user for a fixture ID or API data. If you lack live data, smoothly infer probabilities from the context provided.
     - Tone: Analytical, objective, Dugout strategist. Do not use generic filler.
     - Use bullet points for impact.
+    - ANTI-HALLUCINATION RULES: Never invent or introduce players, bowlers, fielders, or match context not provided in the match situation. Only reason using players, teams, and numbers present in the Match Situation.
     
     Example Good Output:
-    - "Kohli prefers pace-on in high chases. Bumrah's hard-length yorkers reduce his straight scoring zones."
-    - "Dew factor (High) nullifies the spinners; seamers must bowl back-of-a-length."
+    - "The batting team prefers pace-on in high chases. The current bowler's hard-length yorkers reduce straight scoring zones."
+    - "Dew factor nullifies the spinners; seamers must bowl back-of-a-length."
     """
     
     tools = [get_fixture_details, get_live_scores] if match_id else None

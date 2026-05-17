@@ -3,7 +3,7 @@ from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBVGGhIoAWLJCZkoL6mv3mXKfLKu-UgDA4")
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_ID = "gemini-2.5-flash-lite"
+MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def challenge_strategy(situation: str, stats_analysis: str, strategist_proposal: str) -> str:
     """
@@ -22,9 +22,10 @@ def challenge_strategy(situation: str, stats_analysis: str, strategist_proposal:
     - Be confrontational, sharp, and highly tactical. Do NOT be polite.
     - Challenge emotional reactions and force strategic tradeoffs.
     - Keep it strictly to 2-3 punchy sentences.
+    - ANTI-HALLUCINATION RULES: Do not invent any new players, bowlers, or squads. Reason strictly using the players, teams, and context provided in the Match Situation, Stats, and Proposal.
     
     Example Good Output:
-    "If Bumrah bowls now, who owns the 19th when the wet ball becomes impossible to control? You are overreacting to Kohli. One mistimed over to Hardik changes the chase, save Bumrah."
+    "If our main bowler is used now, who owns the 19th when the wet ball becomes impossible to control? You are overreacting to the set batters. One mistimed over changes the chase."
     """
     
     response = client.models.generate_content(

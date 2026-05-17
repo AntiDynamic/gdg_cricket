@@ -31,6 +31,10 @@ export default function Home() {
   // Visual metrics
   const [metrics, setMetrics] = useState({ winProb: 50, momentum: 50, reqRr: 0, currRr: 0, pressure: 50 });
 
+  const [matchUrl, setMatchUrl] = useState("");
+  const [ingesting, setIngesting] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
   const handleChange = (e: any) => {
     const { name, value, type } = e.target;
     setFormData({ 
@@ -39,32 +43,32 @@ export default function Home() {
     });
   };
 
-  const handleAnalyze = async () => {
+  const runAnalysisWithState = async (stateData: any) => {
     setLoading(true);
     setResults(null);
     setError(null);
     try {
       const payload: any = { 
-        ...formData,
-        score: String(formData.score),
-        target: String(formData.target),
-        overs: String(formData.overs),
-        wickets: String(formData.wickets)
+        ...stateData,
+        score: String(stateData.score),
+        target: String(stateData.target),
+        overs: String(stateData.overs),
+        wickets: String(stateData.wickets)
       };
       if (payload.match_id) payload.match_id = parseInt(payload.match_id, 10);
       else payload.match_id = null;
       
       // Calculate realistic dummy metrics based on form inputs for demo
-      const runsNeeded = formData.target - formData.score;
-      const ballsLeft = 120 - Math.floor(formData.overs) * 6 - (formData.overs % 1) * 10;
+      const runsNeeded = stateData.target - stateData.score;
+      const ballsLeft = 120 - Math.floor(stateData.overs) * 6 - (stateData.overs % 1) * 10;
       const reqRate = runsNeeded > 0 && ballsLeft > 0 ? (runsNeeded / ballsLeft) * 6 : 0;
-      const currRate = formData.overs > 0 ? (formData.score / formData.overs) : 0;
+      const currRate = stateData.overs > 0 ? (stateData.score / stateData.overs) : 0;
       
-      let wp = 50 + (currRate - reqRate) * 10 - formData.wickets * 5;
+      let wp = 50 + (currRate - reqRate) * 10 - stateData.wickets * 5;
       if (wp < 5) wp = 5;
       if (wp > 95) wp = 95;
       
-      const pressureLevel = Math.min(100, Math.max(0, reqRate * 8 + formData.wickets * 5));
+      const pressureLevel = Math.min(100, Math.max(0, reqRate * 8 + stateData.wickets * 5));
 
       setMetrics({ 
         winProb: Math.round(wp), 
@@ -74,7 +78,7 @@ export default function Home() {
         pressure: Math.round(pressureLevel)
       });
 
-      const res = await axios.post("http://127.0.0.1:8000/api/tactics", payload);
+      const res = await axios.post("http://localhost:8000/api/tactics", payload);
       setResults(res.data);
     } catch (err: any) {
       console.error("Analysis failed", err);
@@ -89,17 +93,90 @@ export default function Home() {
     setLoading(false);
   };
 
+  const handleAnalyze = async () => {
+    await runAnalysisWithState(formData);
+  };
+
+  const handleIngest = async () => {
+    if (!matchUrl) return;
+    setIngesting(true);
+    setSyncStatus("Connecting live scraper feed...");
+    setError(null);
+    
+    // Multi-stage loader status transition
+    setTimeout(() => {
+      setSyncStatus("Extracting tactical entities...");
+    }, 1000);
+
+    setTimeout(() => {
+      setSyncStatus("Normalizing match-state variables...");
+    }, 2000);
+
+    try {
+      const res = await axios.post("http://localhost:8000/api/ingest", { url: matchUrl });
+      if (res.data && res.data.status === "success") {
+        const data = res.data.data;
+        
+        // Normalize values safely
+        const parsedScore = parseInt(data.score, 10) || 172;
+        const parsedWickets = parseInt(data.wickets, 10) || 5;
+        const parsedOvers = parseFloat(data.overs) || 17.0;
+        const parsedTarget = data.target === "N/A" ? 0 : (parseInt(data.target, 10) || 0);
+        
+        const newFormData = {
+          match_id: "",
+          batting_team: data.batting_team || "MI",
+          bowling_team: data.bowling_team || "CSK",
+          score: parsedScore,
+          wickets: parsedWickets,
+          overs: parsedOvers,
+          target: parsedTarget,
+          striker: data.striker || "Hardik",
+          non_striker: data.non_striker || "David",
+          current_bowler: data.bowler || "Pathirana",
+          pitch_type: data.pitch_type || "Slow, Gripping",
+          dew_factor: data.dew_factor || "High",
+          venue: data.venue || "Wankhede",
+          custom_scenario: data.custom_scenario || data.momentum || "Live scenario synced from URL."
+        };
+
+        setFormData(newFormData);
+        setSyncStatus("Ingestion complete! Syncing multi-agent debate...");
+        
+        // Trigger multi-agent debate automatically using the fresh form data!
+        await runAnalysisWithState(newFormData);
+        
+        if (res.data.source === "degraded_fallback") {
+          setSyncStatus("Live tactical feed partially degraded. Continuing with available match intelligence.");
+        } else {
+          setSyncStatus("Synced & analyzed in real-time! ⚡");
+        }
+        
+        setTimeout(() => setSyncStatus(null), 4000);
+      } else {
+        setError("Failed to ingest URL data.");
+      }
+    } catch (err: any) {
+      console.error("URL Ingestion failed", err);
+      // Ensure failure handling rules: never expose API failures, parsing errors or traces
+      setError("Live tactical feed partially degraded. Continuing with available match intelligence.");
+    } finally {
+      setIngesting(false);
+    }
+  };
+
   const getMatchPhase = () => {
     if (formData.overs < 6) return "POWERPLAY";
     if (formData.overs < 15) return "MIDDLE OVERS";
     return "DEATH OVERS";
   };
 
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 p-4 lg:p-6 font-sans selection:bg-blue-500/30 overflow-x-hidden relative">
-      {/* Stadium Lights */}
-      <div className="stadium-light light-left" />
-      <div className="stadium-light light-right" />
+      {/* Stadium Lights — decorative only, must not block clicks */}
+      <div className="stadium-light light-left pointer-events-none" />
+      <div className="stadium-light light-right pointer-events-none" />
 
       <header className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between mb-8 pb-4 border-b border-white/10 gap-4">
         <div className="flex items-center gap-4">
@@ -128,7 +205,7 @@ export default function Home() {
         {/* ================================================== */}
         <div className="lg:col-span-3 flex flex-col h-[calc(100vh-8rem)] min-h-[600px] overflow-y-auto custom-scrollbar pr-2 space-y-6 pb-10">
           <div className="glass-panel-heavy p-6 rounded-2xl relative overflow-hidden group shrink-0">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
             
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-bold flex items-center gap-2 text-slate-100 uppercase tracking-wide">
@@ -140,6 +217,47 @@ export default function Home() {
             </div>
             
             <div className="space-y-5">
+              {/* URL Ingestion */}
+              <div className="space-y-1.5 border-b border-white/10 pb-4">
+                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-blue-400 animate-pulse" /> Paste Match URL
+                </label>
+                <div className="relative flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Cricbuzz / ESPN URL..." 
+                    value={matchUrl}
+                    onChange={(e) => setMatchUrl(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-205 placeholder-slate-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                  {matchUrl && (
+                    <button onClick={() => setMatchUrl("")} className="absolute right-2.5 text-slate-400 hover:text-white text-xs">×</button>
+                  )}
+                </div>
+                <button
+                  onClick={handleIngest}
+                  disabled={ingesting || !matchUrl}
+                  className="w-full bg-blue-900/40 hover:bg-blue-800/60 border border-blue-500/30 rounded-lg text-xs font-bold text-blue-300 py-2.5 uppercase tracking-wider transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {ingesting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                      Syncing Live Feed...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3 h-3 text-emerald-400 animate-pulse" />
+                      Sync Match Data
+                    </>
+                  )}
+                </button>
+                {syncStatus && (
+                  <div className="text-[10px] text-cyan-300 bg-cyan-950/40 border border-cyan-800/30 rounded p-2 text-center animate-pulse font-medium tracking-wide">
+                    {syncStatus}
+                  </div>
+                )}
+              </div>
+
               {/* Teams */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -182,6 +300,20 @@ export default function Home() {
                     <input type="text" name="current_bowler" value={formData.current_bowler} onChange={handleChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-sm font-bold text-white text-center" />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1 block">Striker</label>
+                    <input type="text" name="striker" value={formData.striker} onChange={handleChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs font-bold text-white text-center" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1 block">Non-Striker</label>
+                    <input type="text" name="non_striker" value={formData.non_striker} onChange={handleChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs font-bold text-white text-center" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1 block">Venue</label>
+                  <input type="text" name="venue" value={formData.venue} onChange={handleChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs font-bold text-white text-center" />
+                </div>
               </div>
 
               {/* Conditions */}
@@ -214,11 +346,11 @@ export default function Home() {
               <button
                 onClick={handleAnalyze}
                 disabled={loading}
-                className="w-full relative group overflow-hidden bg-slate-800 rounded-xl font-bold uppercase tracking-wider text-sm shadow-xl transition-all active:scale-[0.98] disabled:opacity-70"
+                className="w-full relative group overflow-hidden bg-slate-800 rounded-xl font-bold uppercase tracking-wider text-sm shadow-xl transition-all active:scale-[0.98] disabled:opacity-70 cursor-pointer"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 group-hover:opacity-90 transition-opacity" />
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 group-hover:opacity-90 transition-opacity pointer-events-none" />
                 {/* Shine effect */}
-                <div className="absolute top-0 -inset-full h-full w-1/2 z-5 block transform -skew-x-12 bg-gradient-to-r from-transparent to-white opacity-20 group-hover:animate-shine" />
+                <div className="absolute top-0 -inset-full h-full w-1/2 z-5 block transform -skew-x-12 bg-gradient-to-r from-transparent to-white opacity-20 group-hover:animate-shine pointer-events-none" />
                 <div className="relative z-10 flex items-center justify-center gap-3 py-3.5 px-4 text-white">
                   {loading ? (
                     <>
@@ -253,7 +385,7 @@ export default function Home() {
                 
                 {/* Pressure Gauge */}
                 <div className="h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-800 relative">
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500 opacity-20" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500 opacity-20 pointer-events-none" />
                   <motion.div 
                     className="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" 
                     initial={{ width: 0 }}
@@ -293,10 +425,24 @@ export default function Home() {
 
             <div className="flex-1 overflow-y-auto p-5 custom-scrollbar relative z-0">
               <AnimatePresence mode="wait">
-                {results ? (
+                {error ? (
+                  <motion.div key="error" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-red-950/60 border border-red-500/40 rounded-2xl p-5 flex flex-col items-center text-center shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+                    <ShieldAlert className="w-10 h-10 text-red-500 mb-3 animate-pulse" />
+                    <h3 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-2">System Failure</h3>
+                    <p className="text-xs text-red-200/90 font-medium mb-4">{error}</p>
+                    <button
+                      onClick={() => setError(null)}
+                      className="px-4 py-1.5 bg-red-900/60 hover:bg-red-800/80 border border-red-500/40 rounded-lg text-xs font-bold text-red-300 uppercase tracking-wider transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </motion.div>
+                ) : results ? (
                   <motion.div 
+                    key="results"
                     initial={{ opacity: 0 }} 
                     animate={{ opacity: 1 }} 
+                    exit={{ opacity: 0 }}
                     className="space-y-8 relative pb-10"
                   >
                     {/* Timeline Line */}
@@ -352,29 +498,19 @@ export default function Home() {
                     </motion.div>
                   </motion.div>
                 ) : !loading ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50 relative z-10">
+                  <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50 relative z-10">
                     <div className="relative">
                       <Swords className="w-16 h-16 mb-4" />
                       <div className="absolute inset-0 bg-slate-500 blur-xl opacity-20" />
                     </div>
                     <p className="font-mono text-sm uppercase tracking-widest">Awaiting Context Parameters</p>
-                  </div>
+                  </motion.div>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center mt-20 text-blue-500 relative z-10 space-y-4">
+                  <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col items-center justify-center mt-20 text-blue-500 relative z-10 space-y-4">
                     <Loader2 className="w-10 h-10 animate-spin" />
                     <div className="font-mono text-xs uppercase tracking-widest flex flex-col items-center gap-1">
                       <span className="text-blue-400">Initializing Sub-Agents...</span>
                       <span className="text-slate-500">Cross-referencing Matchups...</span>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-slate-950/50 rounded-2xl">
-                    <div className="bg-red-950/80 border border-red-500/50 p-6 rounded-2xl flex flex-col items-center max-w-sm text-center shadow-[0_0_30px_rgba(239,68,68,0.3)]">
-                      <ShieldAlert className="w-12 h-12 text-red-500 mb-4 animate-pulse" />
-                      <h3 className="text-lg font-bold text-red-400 uppercase tracking-widest mb-2">System Failure</h3>
-                      <p className="text-sm text-red-200 font-medium">{error}</p>
                     </div>
                   </motion.div>
                 )}
